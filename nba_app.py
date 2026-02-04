@@ -66,10 +66,26 @@ TEAM_QUARTER_DNA = {
     "Wizards": [0.26, 0.25, 0.23, 0.26], "Trail Blazers": [0.24, 0.24, 0.25, 0.27]
 }
 
-STARS_DB = {
-    "tatum": 0.12, "jokic": 0.12, "doncic": 0.12, "james": 0.10, "curry": 0.10,
-    "embiid": 0.12, "antetokounmpo": 0.12, "davis": 0.10, "durant": 0.10,
-    "booker": 0.09, "gilgeous": 0.11, "brunson": 0.10, "wembanayama": 0.09, "haliburton": 0.08
+THREE_STAR_PENALTY = 0.12  # Súper estrella: baja ~12% el potencial del equipo
+TWO_STAR_PENALTY = 0.06    # Jugador muy importante: baja ~6%
+ONE_STAR_PENALTY = 0.00    # Rol / reemplazable: no baja nada
+
+# Nombres en minúsculas para machar con el texto de ESPN
+THREE_STAR_PLAYERS = {
+    # Súper estrellas, MVP, primeras espadas claras
+    "tatum", "jokic", "doncic", "james", "curry", "embiid", "antetokounmpo",
+    "davis", "durant", "booker", "gilgeous", "brunson", "wembanayama", "haliburton",
+    "lillard", "morant", "butler", "kawhi", "george", "mitchell", "towns",
+    "edwards", "irving", "beal", "trae", "fox", "sabonis", "leonard"
+}
+
+TWO_STAR_PLAYERS = {
+    # Segundas espadas, organizadores, defensores clave
+    "brown", "holiday", "porzingis", "murray", "middleton", "maxey", "herro",
+    "bane", "jackson", "mobley", "garland", "siakam", "vanvleet", "ayton",
+    "gordon", "mikal", "bridges", "mccollum", "ingram", "jamal", "green",
+    "poole", "wiggins", "lopez", "allen", "porter", "anunoby", "markkanen",
+    "ayton", "dejounte", "white", "reaves", "bane", "simmons"
 }
 
 # --- 3. FUNCIONES ---
@@ -92,16 +108,30 @@ def calculate_injury_penalty(team_nick, injuries_db):
     penalty = 0.0
     detected = []
     for p in bajas:
+        nombre = p.lower()
         is_star = False
-        for s, val in STARS_DB.items():
-            if s in p.lower():
-                penalty += val
+
+        # 3 estrellas
+        for s in THREE_STAR_PLAYERS:
+            if s in nombre:
+                penalty += THREE_STAR_PENALTY
                 detected.append(f"⭐⭐⭐ {p}")
                 is_star = True
                 break
+
+        # 2 estrellas
         if not is_star:
-            penalty += 0.015
+            for s in TWO_STAR_PLAYERS:
+                if s in nombre:
+                    penalty += TWO_STAR_PENALTY
+                    detected.append(f"⭐⭐ {p}")
+                    is_star = True
+                    break
+
+        # 1 estrella / resto (no penaliza, solo se muestra)
+        if not is_star:
             detected.append(f"⭐ {p}")
+
     return min(0.35, penalty), detected
 
 
