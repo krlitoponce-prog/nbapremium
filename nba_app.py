@@ -66,6 +66,31 @@ TEAM_QUARTER_DNA = {
     "Wizards": [0.26, 0.25, 0.23, 0.26], "Trail Blazers": [0.24, 0.24, 0.25, 0.27]
 }
 
+def project_quarters(total_points: float, dna: list[float]) -> list[float]:
+    """
+    Proyecta puntos por cuarto asegurando que la suma de Q1–Q4 coincide exactamente
+    con el total del equipo y respetando el perfil de arranque/cierre del DNA.
+    """
+    if not dna or len(dna) != 4:
+        weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=float)
+    else:
+        weights = np.array(dna, dtype=float)
+
+    s = weights.sum()
+    if s <= 0:
+        weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=float)
+    else:
+        weights = weights / s
+
+    # Calculamos Q1–Q3 con los pesos y forzamos Q4 para que cierre el total
+    q1 = round(total_points * weights[0], 1)
+    q2 = round(total_points * weights[1], 1)
+    q3 = round(total_points * weights[2], 1)
+    q4 = round(total_points - (q1 + q2 + q3), 1)
+
+    return [q1, q2, q3, q4]
+
+
 THREE_STAR_PENALTY = 0.12  # Súper estrella: baja ~12% el potencial del equipo
 TWO_STAR_PENALTY = 0.06    # Jugador muy importante: baja ~6%
 ONE_STAR_PENALTY = 0.00    # Rol / reemplazable: no baja nada
@@ -311,12 +336,15 @@ if section == "Predicción":
         dna_l = TEAM_QUARTER_DNA.get(l_team, [0.25, 0.25, 0.25, 0.25])
         dna_v = TEAM_QUARTER_DNA.get(v_team, [0.25, 0.25, 0.25, 0.25])
 
+        q_l = project_quarters(final_l, dna_l)
+        q_v = project_quarters(final_v, dna_v)
+
         df_q = pd.DataFrame({
             "Equipo": [l_team, v_team],
-            "Q1": [round(final_l * dna_l[0], 1), round(final_v * dna_v[0], 1)],
-            "Q2": [round(final_l * dna_l[1], 1), round(final_v * dna_v[1], 1)],
-            "Q3": [round(final_l * dna_l[2], 1), round(final_v * dna_v[2], 1)],
-            "Q4": [round(final_l * dna_l[3], 1), round(final_v * dna_v[3], 1)],
+            "Q1": [q_l[0], q_v[0]],
+            "Q2": [q_l[1], q_v[1]],
+            "Q3": [q_l[2], q_v[2]],
+            "Q4": [q_l[3], q_v[3]],
             "TOTAL": [round(final_l, 1), round(final_v, 1)]
         })
         st.table(df_q)
