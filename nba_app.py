@@ -106,6 +106,15 @@ ADVANCED_STATS_FALLBACK = {
     "Pistons": [109.5, 118.0], "Wizards": [111.8, 122.5], "Trail Blazers": [110.0, 117.5]
 }
 
+# Equipos de ritmo alto (Ritmo 9-10 en TEAM_SKILLS) -> empujan total hacia arriba
+PACE_TEAMS = {"Wizards", "Pacers", "Kings", "Hawks", "Trail Blazers"}
+
+# Peso H2H: cuánto del diff H2H vs proyección aplicamos al total (antes 15%, ahora 40%)
+H2H_WEIGHT = 0.40
+
+# Ventaja cancha base; se reduce si el local tiene mal récord
+HOME_ADVANTAGE_BASE = 2.5
+
 TEAM_QUARTER_DNA = {
     "Celtics": [0.27, 0.26, 0.24, 0.23], "Thunder": [0.26, 0.26, 0.25, 0.23],
     "Nuggets": [0.25, 0.25, 0.26, 0.24], "76ers": [0.26, 0.25, 0.24, 0.25],
@@ -123,6 +132,17 @@ TEAM_QUARTER_DNA = {
     "Hornets": [0.26, 0.24, 0.24, 0.26], "Pistons": [0.24, 0.24, 0.24, 0.28],
     "Wizards": [0.26, 0.25, 0.23, 0.26], "Trail Blazers": [0.24, 0.24, 0.25, 0.27]
 }
+
+def get_matchup_adjusted_dna(team: str, opp_team: str) -> list[float]:
+    """
+    DNA ajustado al matchup: 85% propio + 15% rival para reflejar dinámicas
+    (ej. ante rival Cierrador, Q3/Q4 pueden variar).
+    """
+    own = TEAM_QUARTER_DNA.get(team, [0.25, 0.25, 0.25, 0.25])
+    opp = TEAM_QUARTER_DNA.get(opp_team, [0.25, 0.25, 0.25, 0.25])
+    blend = [0.85 * a + 0.15 * b for a, b in zip(own, opp)]
+    s = sum(blend)
+    return [x / s for x in blend] if s > 0 else own
 
 def project_quarters(total_points: float, dna: list[float]) -> list[float]:
     """
@@ -745,11 +765,6 @@ with st.sidebar:
     else:
         st.warning("⚠️ Stats: Fallback estático (instalar nba_api: pip install nba_api)")
 
-    # Indicador The Odds API
-    if os.environ.get("THE_ODDS_API_KEY"):
-        st.caption("✅ Cuotas: The Odds API configurada")
-    else:
-        st.caption("Cuotas: definir THE_ODDS_API_KEY para carga automática")
 
     if section == "Predicción":
         st.header("📅 Fecha del partido")
@@ -820,54 +835,19 @@ if section == "Predicción":
 
         veng_v_active = st.checkbox("🔥 Factor Venganza Visita")
 
-    # --- Casino (Manual o automático desde The Odds API) ---
-    st.subheader("💰 Casino")
-    for k, v in [("linea", 220.5), ("handicap", -4.5), ("cuota_over", 1.90), ("cuota_under", 1.90)]:
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-    col_casino1, col_casino2 = st.columns([1, 1])
-    with col_casino1:
-        if st.button("📥 Cargar cuotas automáticas (The Odds API)", key="btn_cargar_odds"):
-            odds = fetch_the_odds_api(l_team, v_team)
-            if odds:
-                st.session_state["linea"] = odds["linea"]
-                st.session_state["handicap"] = odds["handicap"]
-                st.session_state["cuota_over"] = odds["cuota_over"]
-                st.session_state["cuota_under"] = odds["cuota_under"]
-                st.session_state["linea_input"] = odds["linea"]
-                st.session_state["handicap_input"] = odds["handicap"]
-                st.session_state["cuota_over_input"] = odds["cuota_over"]
-                st.session_state["cuota_under_input"] = odds["cuota_under"]
-                st.success(f"✅ Cuotas cargadas desde {odds.get('bookmaker', 'API')}")
-            else:
-                st.error("No se encontró el partido o falta THE_ODDS_API_KEY")
-
-    with col_casino2:
-        linea_total_puntos = st.number_input(
-            "Línea Total Puntos",
-            value=float(st.session_state["linea"]),
-            key="linea_input",
-            min_value=150.0,
-            max_value=300.0,
-            step=0.5,
-        )
-        handicap_local_casino = st.number_input(
-            "Hándicap Local",
-            value=float(st.session_state["handicap"]),
-            key="handicap_input",
-            min_value=-30.0,
-            max_value=30.0,
-            step=0.5,
-        )
-        cuota_over = st.number_input("Cuota OVER", value=float(st.session_state["cuota_over"]), key="cuota_over_input", min_value=1.01, max_value=5.0, step=0.01)
-        cuota_under = st.number_input("Cuota UNDER", value=float(st.session_state["cuota_under"]), key="cuota_under_input", min_value=1.01, max_value=5.0, step=0.01)
-
-    # Actualizar session_state con valores actuales (edición manual o carga automática)
-    st.session_state["linea"] = linea_total_puntos
-    st.session_state["handicap"] = handicap_local_casino
-    st.session_state["cuota_over"] = cuota_over
-    st.session_state["cuota_under"] = cuota_under
+    # Línea de referencia para proyección (simplificado, sin Casino)
+    if "linea_total_puntos" not in st.session_state:
+        st.session_state["linea_total_puntos"] = 220.5
+    linea_total_puntos = st.number_input(
+        "Línea referencia (pts total)",
+        value=220.5,
+        key="linea_ref",
+        min_value=150.0,
+        max_value=300.0,
+        step=0.5,
+        help="Para comparar proyección OVER/UNDER.",
+    )
+    st.session_state["linea_total_puntos"] = linea_total_puntos
 
     if st.button("🚀 EJECUTAR SIMULACIÓN IA", type="primary"):
         team_stats = get_team_stats_for_prediction()
@@ -898,26 +878,41 @@ if section == "Predicción":
             wl = form_v["wins"] - form_v["losses"]
             racha_mod_v = max(-2, min(2, wl * 0.3))
 
-        # Modificador head-to-head: si H2H suele ser alto/bajo, ajustar
+        # Modificador head-to-head: más peso (40%) cuando H2H difiere mucho
         h2h = get_head_to_head(l_team, v_team, 5)
         h2h_mod_total = 0.0
         if h2h and "avg_total_pts" in h2h:
-            # Ajuste suave: si H2H promedio difiere de nuestra proyección, aplicar parte
-            h2h_mod_total = (h2h["avg_total_pts"] - (base_score_l + base_score_v)) * 0.15  # 15% del diff
-            h2h_mod_total = max(-3, min(3, h2h_mod_total))
+            proy_base = base_score_l + base_score_v
+            diff_h2h = h2h["avg_total_pts"] - proy_base
+            # Si H2H difiere mucho (>25 pts), más peso para acercarnos al histórico
+            weight = 0.50 if abs(diff_h2h) > 25 else H2H_WEIGHT
+            h2h_mod_total = diff_h2h * weight
+            h2h_mod_total = max(-10, min(25, h2h_mod_total))  # Cap ampliado para casos extremos
 
-        # Modificadores (ligeramente suavizados para no sobreajustar)
+        # Factor ritmo: equipos rápidos suben el total
+        pace_mod = 0.0
+        if l_team in PACE_TEAMS:
+            pace_mod += 2.0
+        if v_team in PACE_TEAMS:
+            pace_mod += 2.0
+
+        # Ventaja cancha: se reduce si el local tiene mal récord
+        home_advantage = HOME_ADVANTAGE_BASE
+        if form_l and (form_l["wins"] + form_l["losses"]) >= 5:
+            win_pct = form_l["wins"] / (form_l["wins"] + form_l["losses"])
+            home_advantage = HOME_ADVANTAGE_BASE * (0.4 + 0.6 * win_pct)  # 0.4-1.0x
+
+        # Modificadores
         ref_mod = 1.02 if "Over" in ref_trend else (0.98 if "Under" in ref_trend else 1.0)
         fat_l = 0.97 if b2b_local else 1.0
         fat_v = 0.96 if b2b_visita else 1.0
         veng_l_val = 1.5 if veng_l_active else 0
         veng_v_val = 1.0 if veng_v_active else 0
-        home_advantage = 2.0  # Ventaja cancha (pts)
 
-        # Cálculo Final (incluye racha + H2H)
+        # Cálculo Final (incluye racha + H2H + ritmo + ventaja local ajustada)
         final_l = ((base_score_l * (1 - pen_l) * fat_l) + veng_l_val + home_advantage + racha_mod_l) * ref_mod
         final_v = ((base_score_v * (1 - pen_v) * fat_v) + veng_v_val + racha_mod_v) * ref_mod
-        total_ia = round(final_l + final_v + h2h_mod_total, 1)
+        total_ia = round(final_l + final_v + h2h_mod_total + pace_mod, 1)
         spread_ia = round(final_l - final_v, 1)
 
         # --- MÉTRICAS V9.0 + PROBABILIDADES ---
@@ -932,7 +927,7 @@ if section == "Predicción":
 
         with m2:
             diff_p = round(total_ia - linea_total_puntos, 1)
-            st.metric("TOTAL PUNTOS", total_ia, f"{diff_p} vs Casino")
+            st.metric("TOTAL PUNTOS", total_ia, f"{diff_p} vs línea")
             proy_pick = "OVER" if diff_p > 0 else "UNDER"
 
             # Probabilidades basadas en histórico (sigma mínimo = menos sobreconfianza)
@@ -955,47 +950,40 @@ if section == "Predicción":
                 st.caption(f"PROYECCIÓN: {proy_pick} (sin calibrar)")
 
         with m3:
-            # Valor del spread contra el hándicap del casino
-            val_spread = round(spread_ia + handicap_local_casino, 1)
-            st.metric("SPREAD REAL", spread_ia, f"{val_spread} Valor")
+            st.metric("SPREAD PROY.", spread_ia, f"Local por {abs(spread_ia)} pts")
 
-        # Edge vs cuotas (mismo sigma efectivo con mínimo)
-        sigma_eff = max(sigma_raw, SIGMA_MIN_PTS) if sigma_raw is not None else SIGMA_MIN_PTS
-        cdf_line_edge = normal_cdf(linea_total_puntos, total_ia, sigma_eff)
-        if cdf_line_edge is not None:
-            p_over_e = 1 - cdf_line_edge
-            p_under_e = cdf_line_edge
-            prob_imp_over = 1 / cuota_over if cuota_over > 0 else None
-            prob_imp_under = 1 / cuota_under if cuota_under > 0 else None
-
-            st.subheader("📊 Value vs Cuotas")
-            col_e1, col_e2 = st.columns(2)
-            with col_e1:
-                if prob_imp_over is not None:
-                    edge_over = p_over_e - prob_imp_over
-                    st.metric("EDGE OVER", f"{edge_over*100:.1f} %")
-            with col_e2:
-                if prob_imp_under is not None:
-                    edge_under = p_under_e - prob_imp_under
-                    st.metric("EDGE UNDER", f"{edge_under*100:.1f} %")
-
-        # --- DESGLOSE POR CUARTOS ---
+        # --- DESGLOSE POR CUARTOS (mejorado: DNA ajustado al matchup) ---
         st.subheader("🗓️ Desglose por Cuartos")
-        dna_l = TEAM_QUARTER_DNA.get(l_team, [0.25, 0.25, 0.25, 0.25])
-        dna_v = TEAM_QUARTER_DNA.get(v_team, [0.25, 0.25, 0.25, 0.25])
+        dna_l = get_matchup_adjusted_dna(l_team, v_team)
+        dna_v = get_matchup_adjusted_dna(v_team, l_team)
+
+        # Perfil: Arrancador (Q1+Q2 > 50%) vs Cierrador (Q3+Q4 > 50%)
+        def _perfil(dna):
+            arranque = dna[0] + dna[1]
+            cierre = dna[2] + dna[3]
+            if arranque > 0.51:
+                return "🔥 Arrancador", f"Q1+Q2: {arranque*100:.0f}%"
+            if cierre > 0.51:
+                return "🔚 Cierrador", f"Q3+Q4: {cierre*100:.0f}%"
+            return "➖ Equilibrado", f"Q1+Q2: {arranque*100:.0f}%"
+        perfil_l, detalle_l = _perfil(dna_l)
+        perfil_v, detalle_v = _perfil(dna_v)
 
         q_l = project_quarters(final_l, dna_l)
         q_v = project_quarters(final_v, dna_v)
 
+        # Tabla con pts y % DNA por cuarto
         df_q = pd.DataFrame({
             "Equipo": [l_team, v_team],
-            "Q1": [q_l[0], q_v[0]],
-            "Q2": [q_l[1], q_v[1]],
-            "Q3": [q_l[2], q_v[2]],
-            "Q4": [q_l[3], q_v[3]],
+            "Perfil": [perfil_l, perfil_v],
+            "Q1": [f"{q_l[0]:.1f} ({dna_l[0]*100:.0f}%)", f"{q_v[0]:.1f} ({dna_v[0]*100:.0f}%)"],
+            "Q2": [f"{q_l[1]:.1f} ({dna_l[1]*100:.0f}%)", f"{q_v[1]:.1f} ({dna_v[1]*100:.0f}%)"],
+            "Q3": [f"{q_l[2]:.1f} ({dna_l[2]*100:.0f}%)", f"{q_v[2]:.1f} ({dna_v[2]*100:.0f}%)"],
+            "Q4": [f"{q_l[3]:.1f} ({dna_l[3]*100:.0f}%)", f"{q_v[3]:.1f} ({dna_v[3]*100:.0f}%)"],
             "TOTAL": [round(final_l, 1), round(final_v, 1)]
         })
         st.table(df_q)
+        st.caption(f"{l_team}: {detalle_l} | {v_team}: {detalle_v}")
 
         # Registro en DB
         conn = sqlite3.connect('nba_historial.db')
@@ -1009,9 +997,35 @@ if section == "Predicción":
 
     st.divider()
     st.subheader("🔥 Matchup Heatmap")
-    h_data = pd.DataFrame({l_team: TEAM_SKILLS[l_team], v_team: TEAM_SKILLS[v_team]},
-                          index=["Triple", "Pintura", "Rebote", "Ritmo"])
+    heatmap_modo = st.radio("Ver como", ["Numérico (1-10)", "Porcentaje"], horizontal=True, key="heatmap_modo")
+    sk_l = TEAM_SKILLS.get(l_team, [7, 7, 7, 7])
+    sk_v = TEAM_SKILLS.get(v_team, [7, 7, 7, 7])
+    if "Porcentaje" in heatmap_modo:
+        # Escala 6-10 -> 0-100%
+        h_l = [round((x - 6) / 4 * 100) for x in sk_l]
+        h_v = [round((x - 6) / 4 * 100) for x in sk_v]
+    else:
+        h_l, h_v = sk_l, sk_v
+    h_data = pd.DataFrame({l_team: h_l, v_team: h_v}, index=["Triple", "Pintura", "Rebote", "Ritmo"])
     st.bar_chart(h_data)
+
+    # Pts proyectados por equipo (base matchup)
+    team_stats = get_team_stats_for_prediction()
+    sl = team_stats.get(l_team)
+    sv = team_stats.get(v_team)
+    fallback_l = ADVANCED_STATS_FALLBACK.get(l_team, [115, 115])
+    fallback_v = ADVANCED_STATS_FALLBACK.get(v_team, [115, 115])
+    if sl and sv and isinstance(sl, dict) and isinstance(sv, dict):
+        pts_l = round((sl.get("pts_home", sl.get("pts_for", fallback_l[0])) + sv.get("def_away", sv.get("pts_against", fallback_v[1]))) / 2, 1)
+        pts_v = round((sv.get("pts_away", sv.get("pts_for", fallback_v[0])) + sl.get("def_home", sl.get("pts_against", fallback_l[1]))) / 2, 1)
+    else:
+        pts_l = round((fallback_l[0] + fallback_v[1]) / 2, 1)
+        pts_v = round((fallback_v[0] + fallback_l[1]) / 2, 1)
+    c_pts1, c_pts2 = st.columns(2)
+    with c_pts1:
+        st.metric(f"{l_team} pts proy. (base)", pts_l)
+    with c_pts2:
+        st.metric(f"{v_team} pts proy. (base)", pts_v)
 
 else:
     st.subheader("📚 Historial de Predicciones y Estadísticas")
