@@ -64,7 +64,7 @@ OUR_TEAM_TO_ODDS_API = {
 }
 
 # --- 1. CONFIGURACIÓN Y BASE DE DATOS ---
-st.set_page_config(page_title="NBA AI PREDICTOR V10.5 FINAL", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA AI PREDICTOR V10.6", layout="wide", page_icon="🏀")
 
 def init_db():
     conn = sqlite3.connect('nba_historial.db')
@@ -750,7 +750,8 @@ def normal_cdf(x, mu, sigma):
 
 # --- 4. SIDEBAR + LAYOUT ---
 with st.sidebar:
-    st.title("⚙️ CONTROL ROOM V10.5")
+    st.title("⚙️ CONTROL ROOM V10.6")
+    st.caption("Si no ves cambios: Ctrl+C en la terminal, luego ejecuta de nuevo.")
     section = st.radio("Modo", ["Predicción", "Historial/Estadísticas"], index=0)
 
     if st.button("🔄 REFRESCAR DATOS API"):
@@ -787,7 +788,7 @@ with st.sidebar:
 
 
 # --- 5. CUERPO PRINCIPAL ---
-st.title("🏀 NBA AI PRO: V10.5 FINAL")
+st.title("🏀 NBA AI PRO: V10.6")
 
 if section == "Predicción":
     inj_db = get_all_injuries()
@@ -912,7 +913,14 @@ if section == "Predicción":
         # Cálculo Final (incluye racha + H2H + ritmo + ventaja local ajustada)
         final_l = ((base_score_l * (1 - pen_l) * fat_l) + veng_l_val + home_advantage + racha_mod_l) * ref_mod
         final_v = ((base_score_v * (1 - pen_v) * fat_v) + veng_v_val + racha_mod_v) * ref_mod
-        total_ia = round(final_l + final_v + h2h_mod_total + pace_mod, 1)
+        total_bruto = final_l + final_v + h2h_mod_total + pace_mod
+        # Repartir el total ajustado entre ambos equipos (así el marcador refleja H2H + ritmo)
+        suma_base = final_l + final_v
+        if suma_base > 0:
+            ratio = total_bruto / suma_base
+            final_l = round(final_l * ratio, 1)
+            final_v = round(final_v * ratio, 1)
+        total_ia = round(final_l + final_v, 1)
         spread_ia = round(final_l - final_v, 1)
 
         # --- MÉTRICAS V9.0 + PROBABILIDADES ---
@@ -924,6 +932,7 @@ if section == "Predicción":
             st.markdown(f"🏆 GANA {'LOCAL' if final_l > final_v else 'VISITA'} por {abs(spread_ia)} pts")
             if h2h and "avg_total_pts" in h2h:
                 st.caption(f"📊 H2H últimos 5: {h2h['avg_total_pts']} pts promedio")
+            st.caption(f"➕ H2H: {h2h_mod_total:+.1f} | Ritmo: {pace_mod:+.1f} | Total ajustado")
 
         with m2:
             diff_p = round(total_ia - linea_total_puntos, 1)
